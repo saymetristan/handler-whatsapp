@@ -104,44 +104,28 @@ app.post('/webhook', async (req, res) => {
 // Endpoint para enviar mensajes a través de la API de WhatsApp
 app.post('/send-message', async (req, res) => {
   try {
-    const { to, message, type = 'text' } = req.body;
+    const requestBody = req.body;
     
-    if (!to || !message) {
+    // Verificación mínima: asegurarse de que hay un destinatario
+    if (!requestBody.to && !requestBody.recipient_phone_number) {
       return res.status(400).json({
         success: false,
-        error: 'Se requieren los campos "to" y "message"'
+        error: 'Se requiere especificar un destinatario (to o recipient_phone_number)'
       });
     }
     
-    let requestBody;
-    
-    // Preparar body según el tipo de mensaje
-    if (type === 'text') {
-      requestBody = {
-        messaging_product: 'whatsapp',
-        recipient_type: 'individual',
-        to,
-        type: 'text',
-        text: {
-          body: message
-        }
-      };
-    } else if (type === 'template') {
-      requestBody = {
-        messaging_product: 'whatsapp',
-        recipient_type: 'individual',
-        to,
-        type: 'template',
-        template: message
-      };
-    } else {
-      return res.status(400).json({
-        success: false,
-        error: 'Tipo de mensaje no soportado'
-      });
+    // Asegurarse de que siempre tenga el messaging_product correcto
+    if (!requestBody.messaging_product) {
+      requestBody.messaging_product = 'whatsapp';
     }
     
-    // Enviar mensaje a la API de WhatsApp
+    // Si se proporciona recipient_phone_number pero no to, usamos ese valor
+    if (!requestBody.to && requestBody.recipient_phone_number) {
+      requestBody.to = requestBody.recipient_phone_number;
+      delete requestBody.recipient_phone_number; // Eliminamos el campo no estándar
+    }
+    
+    // Enviar mensaje a la API de WhatsApp, pasando el body tal como viene
     const response = await axios.post(
       `https://graph.facebook.com/v17.0/${PHONE_NUMBER_ID}/messages`,
       requestBody,
