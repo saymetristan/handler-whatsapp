@@ -106,14 +106,6 @@ app.post('/send-message', async (req, res) => {
   try {
     const requestBody = req.body;
     
-    // Verificación mínima: asegurarse de que hay un destinatario
-    if (!requestBody.to && !requestBody.recipient_phone_number) {
-      return res.status(400).json({
-        success: false,
-        error: 'Se requiere especificar un destinatario (to o recipient_phone_number)'
-      });
-    }
-    
     // Asegurarse de que siempre tenga el messaging_product correcto
     if (!requestBody.messaging_product) {
       requestBody.messaging_product = 'whatsapp';
