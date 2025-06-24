@@ -11,6 +11,7 @@ app.use(bodyParser.json());
 const VERIFY_TOKEN = process.env.VERIFY_TOKEN;
 const WHATSAPP_TOKEN = process.env.WHATSAPP_TOKEN;
 const N8N_WEBHOOK_URL = process.env.N8N_WEBHOOK_URL;
+const N8N_WEBHOOK_STATUS_URL = process.env.N8N_WEBHOOK_STATUS_URL;
 const PHONE_NUMBER_ID = process.env.PHONE_NUMBER_ID;
 
 // Endpoint para la verificación del webhook (GET)
@@ -41,7 +42,7 @@ app.post('/webhook', async (req, res) => {
   try {
     const body = req.body;
 
-    // Verificar que es un evento de WhatsApp
+    // Verificar que es un evento de WhatsApp con mensajes
     if (body.object && body.entry && 
         body.entry[0].changes && 
         body.entry[0].changes[0].value.messages) {
@@ -98,6 +99,61 @@ app.post('/webhook', async (req, res) => {
   } catch (error) {
     console.error('Error al procesar el webhook:', error);
     res.status(500).send('Error al procesar el webhook');
+  }
+});
+
+// Endpoint para recibir estados de mensajes de WhatsApp (POST)
+app.post('/webhook-status', async (req, res) => {
+  try {
+    const body = req.body;
+
+    // Verificar que es un evento de WhatsApp con estados
+    if (body.object && body.entry && 
+        body.entry[0].changes && 
+        body.entry[0].changes[0].value.statuses) {
+      
+      // Extraer información del estado del mensaje
+      const statusData = body.entry[0].changes[0].value;
+      const status = statusData.statuses[0];
+      
+      const statusInfo = {
+        messageId: status.id,
+        status: status.status, // sent, delivered, read, failed
+        timestamp: status.timestamp,
+        recipientId: status.recipient_id,
+        conversation: status.conversation || null,
+        pricing: status.pricing || null,
+        errors: status.errors || null, // Para errores como ventana de conversación
+        raw: statusData
+      };
+      
+      // Si hay errores, agregar información detallada
+      if (status.errors && status.errors.length > 0) {
+        statusInfo.errorDetails = status.errors.map(error => ({
+          code: error.code,
+          title: error.title,
+          message: error.message,
+          errorData: error.error_data || null
+        }));
+      }
+      
+      // Enviar los datos de estado a n8n
+      if (N8N_WEBHOOK_STATUS_URL) {
+        await axios.post(N8N_WEBHOOK_STATUS_URL, statusInfo);
+        console.log(`Estado de mensaje procesado: ${status.id} - ${status.status}`);
+      } else {
+        console.log('N8N_WEBHOOK_STATUS_URL no configurado, estado no enviado');
+      }
+      
+      // Responder a Meta para confirmar recepción
+      res.status(200).send('STATUS_RECEIVED');
+    } else {
+      // No es un evento de estado de mensaje
+      res.status(200).send('EVENT_RECEIVED');
+    }
+  } catch (error) {
+    console.error('Error al procesar webhook de estado:', error);
+    res.status(500).send('Error al procesar webhook de estado');
   }
 });
 
