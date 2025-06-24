@@ -42,118 +42,88 @@ app.post('/webhook', async (req, res) => {
   try {
     const body = req.body;
 
-    // Verificar que es un evento de WhatsApp con mensajes
-    if (body.object && body.entry && 
-        body.entry[0].changes && 
-        body.entry[0].changes[0].value.messages) {
+    // Verificar que es un evento de WhatsApp
+    if (body.object && body.entry && body.entry[0].changes) {
+      const changeData = body.entry[0].changes[0].value;
       
-      // Extraer información del mensaje entrante
-      const messageData = body.entry[0].changes[0].value;
-      const message = messageData.messages[0];
-      const from = message.from;
-      const messageId = message.id;
-      
-      let messageContent;
-      let messageType;
-      
-      // Determinar el tipo de mensaje
-      if (message.type === 'text') {
-        messageType = 'text';
-        messageContent = message.text.body;
-      } else if (message.type === 'image') {
-        messageType = 'image';
-        messageContent = message.image.id;
-      } else if (message.type === 'audio') {
-        messageType = 'audio';
-        messageContent = message.audio.id;
-      } else if (message.type === 'document') {
-        messageType = 'document';
-        messageContent = message.document.id;
-      } else {
-        messageType = message.type;
-        messageContent = 'Contenido no procesable';
+      // MANEJO DE MENSAJES ENTRANTES
+      if (changeData.messages && changeData.messages.length > 0) {
+        const message = changeData.messages[0];
+        const from = message.from;
+        const messageId = message.id;
+        
+        let messageContent;
+        let messageType;
+        
+        // Determinar el tipo de mensaje
+        if (message.type === 'text') {
+          messageType = 'text';
+          messageContent = message.text.body;
+        } else if (message.type === 'image') {
+          messageType = 'image';
+          messageContent = message.image.id;
+        } else if (message.type === 'audio') {
+          messageType = 'audio';
+          messageContent = message.audio.id;
+        } else if (message.type === 'document') {
+          messageType = 'document';
+          messageContent = message.document.id;
+        } else {
+          messageType = message.type;
+          messageContent = 'Contenido no procesable';
+        }
+        
+        // Preparar los datos para enviar a n8n (mensajes)
+        const webhookData = {
+          messageId,
+          from,
+          type: messageType,
+          content: messageContent,
+          timestamp: message.timestamp,
+          contextFrom: changeData.contacts[0],
+          raw: changeData
+        };
+        
+        // Enviar los datos a n8n (mensajes)
+        await axios.post(N8N_WEBHOOK_URL, webhookData);
+        
+        console.log(`Mensaje procesado y enviado a n8n: ${messageId}`);
       }
       
-      // Preparar los datos para enviar a n8n
-      const webhookData = {
-        messageId,
-        from,
-        type: messageType,
-        content: messageContent,
-        timestamp: message.timestamp,
-        contextFrom: messageData.contacts[0],
-        raw: messageData
-      };
-      
-      // Enviar los datos a n8n
-      await axios.post(N8N_WEBHOOK_URL, webhookData);
-      
-      console.log(`Mensaje procesado y enviado a n8n: ${messageId}`);
+      // MANEJO DE STATUS DE MENSAJES
+      if (changeData.statuses && changeData.statuses.length > 0) {
+        const status = changeData.statuses[0];
+        
+        // Preparar los datos del status para enviar a n8n
+        const statusData = {
+          messageId: status.id,
+          recipientId: status.recipient_id,
+          status: status.status, // sent, delivered, read, failed
+          timestamp: status.timestamp,
+          conversation: status.conversation || null,
+          pricing: status.pricing || null,
+          errors: status.errors || null,
+          raw: changeData
+        };
+        
+        // Enviar status a n8n (solo si tenemos la URL configurada)
+        if (N8N_WEBHOOK_STATUS_URL) {
+          await axios.post(N8N_WEBHOOK_STATUS_URL, statusData);
+          console.log(`Status de mensaje enviado a n8n: ${status.id} - ${status.status}`);
+        } else {
+          console.log(`Status recibido pero N8N_WEBHOOK_STATUS_URL no configurada: ${status.id} - ${status.status}`);
+        }
+      }
       
       // Responder a Meta para confirmar recepción
       res.status(200).send('EVENT_RECEIVED');
     } else {
-      // No es un evento de mensaje
+      // No es un evento válido
       res.status(200).send('EVENT_RECEIVED');
     }
   } catch (error) {
     console.error('Error al procesar el webhook:', error);
     res.status(500).send('Error al procesar el webhook');
-  }
-});
-
-// Endpoint para recibir estados de mensajes de WhatsApp (POST)
-app.post('/webhook-status', async (req, res) => {
-  try {
-    const body = req.body;
-
-    // Verificar que es un evento de WhatsApp con estados
-    if (body.object && body.entry && 
-        body.entry[0].changes && 
-        body.entry[0].changes[0].value.statuses) {
-      
-      // Extraer información del estado del mensaje
-      const statusData = body.entry[0].changes[0].value;
-      const status = statusData.statuses[0];
-      
-      const statusInfo = {
-        messageId: status.id,
-        status: status.status, // sent, delivered, read, failed
-        timestamp: status.timestamp,
-        recipientId: status.recipient_id,
-        conversation: status.conversation || null,
-        pricing: status.pricing || null,
-        errors: status.errors || null, // Para errores como ventana de conversación
-        raw: statusData
-      };
-      
-      // Si hay errores, agregar información detallada
-      if (status.errors && status.errors.length > 0) {
-        statusInfo.errorDetails = status.errors.map(error => ({
-          code: error.code,
-          title: error.title,
-          message: error.message,
-          errorData: error.error_data || null
-        }));
-      }
-      
-      // Enviar los datos de estado a n8n
-      if (N8N_WEBHOOK_STATUS_URL) {
-        await axios.post(N8N_WEBHOOK_STATUS_URL, statusInfo);
-        console.log(`Estado de mensaje procesado: ${status.id} - ${status.status}`);
-      } else {
-        console.log('N8N_WEBHOOK_STATUS_URL no configurado, estado no enviado');
-      }
-      
-      // Responder a Meta para confirmar recepción
-      res.status(200).send('STATUS_RECEIVED');
-    } else {
-      // No es un evento de estado de mensaje
-      res.status(200).send('EVENT_RECEIVED');
-    }
-  } catch (error) {
-    console.error('Error al procesar webhook de estado:', error);
-    res.status(500).send('Error al procesar webhook de estado');
   }
 });
 
