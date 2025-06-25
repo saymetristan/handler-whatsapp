@@ -168,6 +168,114 @@ app.post('/send-message', async (req, res) => {
   }
 });
 
+// Endpoint para obtener URL de descarga de medios
+app.get('/media/:mediaId', async (req, res) => {
+  try {
+    const { mediaId } = req.params;
+    
+    if (!mediaId) {
+      return res.status(400).json({
+        success: false,
+        error: 'mediaId es requerido'
+      });
+    }
+
+    // Obtener información del media de WhatsApp API
+    const response = await axios.get(
+      `https://graph.facebook.com/v17.0/${mediaId}`,
+      {
+        headers: {
+          'Authorization': `Bearer ${WHATSAPP_TOKEN}`
+        }
+      }
+    );
+
+    const mediaData = response.data;
+    
+    // Obtener la URL de descarga del archivo
+    const downloadResponse = await axios.get(mediaData.url, {
+      headers: {
+        'Authorization': `Bearer ${WHATSAPP_TOKEN}`
+      },
+      responseType: 'stream',
+      maxRedirects: 0,
+      validateStatus: status => status < 400
+    });
+
+    // Si es un redirect, devolvemos la URL directa
+    if (downloadResponse.status >= 300 && downloadResponse.status < 400) {
+      return res.json({
+        success: true,
+        data: {
+          mediaId,
+          downloadUrl: downloadResponse.headers.location,
+          mimeType: mediaData.mime_type,
+          fileSize: mediaData.file_size,
+          sha256: mediaData.sha256
+        }
+      });
+    }
+
+    // Si no es redirect, configuramos la respuesta para stream directo
+    res.set({
+      'Content-Type': mediaData.mime_type,
+      'Content-Length': mediaData.file_size,
+      'Content-Disposition': `attachment; filename="${mediaId}"`
+    });
+
+    downloadResponse.data.pipe(res);
+
+  } catch (error) {
+    console.error('Error al obtener media:', error.response?.data || error.message);
+    res.status(500).json({
+      success: false,
+      error: error.response?.data || error.message
+    });
+  }
+});
+
+// Endpoint para obtener solo la URL de descarga (sin descargar)
+app.get('/media-url/:mediaId', async (req, res) => {
+  try {
+    const { mediaId } = req.params;
+    
+    if (!mediaId) {
+      return res.status(400).json({
+        success: false,
+        error: 'mediaId es requerido'
+      });
+    }
+
+    // Obtener información del media
+    const response = await axios.get(
+      `https://graph.facebook.com/v17.0/${mediaId}`,
+      {
+        headers: {
+          'Authorization': `Bearer ${WHATSAPP_TOKEN}`
+        }
+      }
+    );
+
+    res.json({
+      success: true,
+      data: {
+        mediaId,
+        url: response.data.url,
+        mimeType: response.data.mime_type,
+        fileSize: response.data.file_size,
+        sha256: response.data.sha256
+      }
+    });
+
+  } catch (error) {
+    console.error('Error al obtener URL de media:', error.response?.data || error.message);
+    res.status(500).json({
+      success: false,
+      error: error.response?.data || error.message
+    });
+  }
+});
+
 // Iniciar el servidor
 app.listen(PORT, () => {
   console.log(`Server running on port ${PORT}`);
