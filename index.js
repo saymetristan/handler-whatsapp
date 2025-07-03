@@ -106,12 +106,53 @@ app.post('/webhook', async (req, res) => {
           raw: changeData
         };
         
+        console.log(`📊 Status recibido: ${status.id} - ${status.status} para ${status.recipient_id}`);
+        console.log(`🔗 N8N_WEBHOOK_STATUS_URL configurada: ${N8N_WEBHOOK_STATUS_URL ? 'SÍ' : 'NO'}`);
+        
         // Enviar status a n8n (solo si tenemos la URL configurada)
         if (N8N_WEBHOOK_STATUS_URL) {
-          await axios.post(N8N_WEBHOOK_STATUS_URL, statusData);
-          console.log(`Status de mensaje enviado a n8n: ${status.id} - ${status.status}`);
+          try {
+            console.log(`🚀 Enviando status a n8n: ${N8N_WEBHOOK_STATUS_URL}`);
+            console.log(`📦 Datos a enviar:`, JSON.stringify(statusData, null, 2));
+            
+            const response = await axios.post(N8N_WEBHOOK_STATUS_URL, statusData, {
+              timeout: 10000, // 10 segundos de timeout
+              headers: {
+                'Content-Type': 'application/json',
+                'User-Agent': 'WhatsApp-Handler/1.0'
+              }
+            });
+            
+            console.log(`✅ Status enviado exitosamente a n8n: ${status.id} - ${status.status}`);
+            console.log(`📈 Respuesta de n8n:`, response.status, response.statusText);
+            console.log(`📋 Headers de respuesta:`, response.headers);
+            
+          } catch (error) {
+            console.error(`❌ Error al enviar status a n8n:`, {
+              messageId: status.id,
+              status: status.status,
+              webhookUrl: N8N_WEBHOOK_STATUS_URL,
+              error: error.message,
+              response: error.response ? {
+                status: error.response.status,
+                statusText: error.response.statusText,
+                data: error.response.data,
+                headers: error.response.headers
+              } : 'No response',
+              stack: error.stack
+            });
+            
+            // No relanzamos el error para que no afecte el flujo principal
+            // pero sí lo registramos para debugging
+          }
         } else {
-          console.log(`Status recibido pero N8N_WEBHOOK_STATUS_URL no configurada: ${status.id} - ${status.status}`);
+          console.log(`⚠️ Status recibido pero N8N_WEBHOOK_STATUS_URL no configurada: ${status.id} - ${status.status}`);
+          console.log(`🔧 Variables de entorno disponibles:`, {
+            N8N_WEBHOOK_URL: N8N_WEBHOOK_URL ? 'CONFIGURADA' : 'NO CONFIGURADA',
+            N8N_WEBHOOK_STATUS_URL: N8N_WEBHOOK_STATUS_URL ? 'CONFIGURADA' : 'NO CONFIGURADA',
+            WHATSAPP_TOKEN: WHATSAPP_TOKEN ? 'CONFIGURADA' : 'NO CONFIGURADA',
+            PHONE_NUMBER_ID: PHONE_NUMBER_ID ? 'CONFIGURADA' : 'NO CONFIGURADA'
+          });
         }
       }
       
@@ -272,6 +313,122 @@ app.get('/media-url/:mediaId', async (req, res) => {
     res.status(500).json({
       success: false,
       error: error.response?.data || error.message
+    });
+  }
+});
+
+// Endpoint para testing de conectividad con n8n
+app.get('/test-n8n', async (req, res) => {
+  try {
+    const testData = {
+      test: true,
+      timestamp: new Date().toISOString(),
+      message: 'Test de conectividad desde Railway',
+      source: 'whatsapp-handler'
+    };
+
+    const results = {
+      environment: {
+        N8N_WEBHOOK_URL: N8N_WEBHOOK_URL ? 'CONFIGURADA' : 'NO CONFIGURADA',
+        N8N_WEBHOOK_STATUS_URL: N8N_WEBHOOK_STATUS_URL ? 'CONFIGURADA' : 'NO CONFIGURADA',
+        PORT: PORT
+      },
+      tests: {}
+    };
+
+    // Test del webhook principal de mensajes
+    if (N8N_WEBHOOK_URL) {
+      try {
+        console.log(`🧪 Testing webhook principal: ${N8N_WEBHOOK_URL}`);
+        const response = await axios.post(N8N_WEBHOOK_URL, testData, {
+          timeout: 10000,
+          headers: {
+            'Content-Type': 'application/json',
+            'User-Agent': 'WhatsApp-Handler-Test/1.0'
+          }
+        });
+        results.tests.mainWebhook = {
+          status: 'SUCCESS',
+          responseStatus: response.status,
+          responseTime: 'OK',
+          url: N8N_WEBHOOK_URL
+        };
+        console.log(`✅ Test exitoso en webhook principal`);
+      } catch (error) {
+        results.tests.mainWebhook = {
+          status: 'ERROR',
+          error: error.message,
+          url: N8N_WEBHOOK_URL,
+          details: error.response ? {
+            status: error.response.status,
+            data: error.response.data
+          } : 'No response'
+        };
+        console.log(`❌ Test fallido en webhook principal:`, error.message);
+      }
+    } else {
+      results.tests.mainWebhook = {
+        status: 'NOT_CONFIGURED',
+        message: 'N8N_WEBHOOK_URL no está configurada'
+      };
+    }
+
+    // Test del webhook de status
+    if (N8N_WEBHOOK_STATUS_URL) {
+      try {
+        console.log(`🧪 Testing webhook de status: ${N8N_WEBHOOK_STATUS_URL}`);
+        const statusTestData = {
+          ...testData,
+          messageId: 'test-message-id',
+          recipientId: '+1234567890',
+          status: 'delivered'
+        };
+        
+        const response = await axios.post(N8N_WEBHOOK_STATUS_URL, statusTestData, {
+          timeout: 10000,
+          headers: {
+            'Content-Type': 'application/json',
+            'User-Agent': 'WhatsApp-Handler-Test/1.0'
+          }
+        });
+        results.tests.statusWebhook = {
+          status: 'SUCCESS',
+          responseStatus: response.status,
+          responseTime: 'OK',
+          url: N8N_WEBHOOK_STATUS_URL
+        };
+        console.log(`✅ Test exitoso en webhook de status`);
+      } catch (error) {
+        results.tests.statusWebhook = {
+          status: 'ERROR',
+          error: error.message,
+          url: N8N_WEBHOOK_STATUS_URL,
+          details: error.response ? {
+            status: error.response.status,
+            data: error.response.data
+          } : 'No response'
+        };
+        console.log(`❌ Test fallido en webhook de status:`, error.message);
+      }
+    } else {
+      results.tests.statusWebhook = {
+        status: 'NOT_CONFIGURED',
+        message: 'N8N_WEBHOOK_STATUS_URL no está configurada'
+      };
+    }
+
+    res.json({
+      success: true,
+      testTimestamp: new Date().toISOString(),
+      results
+    });
+
+  } catch (error) {
+    console.error('Error en test de n8n:', error);
+    res.status(500).json({
+      success: false,
+      error: error.message,
+      testTimestamp: new Date().toISOString()
     });
   }
 });
