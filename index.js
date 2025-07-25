@@ -13,6 +13,7 @@ const WHATSAPP_TOKEN = process.env.WHATSAPP_TOKEN;
 const N8N_WEBHOOK_URL = process.env.N8N_WEBHOOK_URL;
 const N8N_WEBHOOK_STATUS_URL = process.env.N8N_WEBHOOK_STATUS_URL;
 const PHONE_NUMBER_ID = process.env.PHONE_NUMBER_ID;
+const BUSINESS_ACCOUNT_ID = process.env.BUSINESS_ACCOUNT_ID;
 
 // Endpoint para la verificación del webhook (GET)
 app.get('/webhook', (req, res) => {
@@ -310,6 +311,97 @@ app.get('/media-url/:mediaId', async (req, res) => {
 
   } catch (error) {
     console.error('Error al obtener URL de media:', error.response?.data || error.message);
+    res.status(500).json({
+      success: false,
+      error: error.response?.data || error.message
+    });
+  }
+});
+
+// Endpoint para crear una plantilla de mensaje
+app.post('/create-template', async (req, res) => {
+  try {
+    if (!BUSINESS_ACCOUNT_ID) {
+      return res.status(400).json({ success: false, error: 'BUSINESS_ACCOUNT_ID no configurado' });
+    }
+
+    const response = await axios.post(
+      `https://graph.facebook.com/v17.0/${BUSINESS_ACCOUNT_ID}/message_templates`,
+      req.body,
+      {
+        headers: {
+          'Authorization': `Bearer ${WHATSAPP_TOKEN}`,
+          'Content-Type': 'application/json'
+        }
+      }
+    );
+
+    res.status(200).json({
+      success: true,
+      data: response.data
+    });
+  } catch (error) {
+    console.error('Error al crear plantilla:', error.response?.data || error.message);
+    res.status(500).json({
+      success: false,
+      error: error.response?.data || error.message
+    });
+  }
+});
+
+// Endpoint para listar plantillas
+app.get('/templates', async (req, res) => {
+  try {
+    if (!BUSINESS_ACCOUNT_ID) {
+      return res.status(400).json({ success: false, error: 'BUSINESS_ACCOUNT_ID no configurado' });
+    }
+
+    const response = await axios.get(
+      `https://graph.facebook.com/v17.0/${BUSINESS_ACCOUNT_ID}/message_templates`,
+      {
+        headers: {
+          'Authorization': `Bearer ${WHATSAPP_TOKEN}`
+        }
+      }
+    );
+
+    res.status(200).json({
+      success: true,
+      data: response.data
+    });
+  } catch (error) {
+    console.error('Error al listar plantillas:', error.response?.data || error.message);
+    res.status(500).json({
+      success: false,
+      error: error.response?.data || error.message
+    });
+  }
+});
+
+// Endpoint para eliminar una plantilla
+app.delete('/template/:templateId', async (req, res) => {
+  try {
+    if (!BUSINESS_ACCOUNT_ID) {
+      return res.status(400).json({ success: false, error: 'BUSINESS_ACCOUNT_ID no configurado' });
+    }
+
+    const { templateId } = req.params;
+
+    const response = await axios.delete(
+      `https://graph.facebook.com/v17.0/${BUSINESS_ACCOUNT_ID}/message_templates/${templateId}`,
+      {
+        headers: {
+          'Authorization': `Bearer ${WHATSAPP_TOKEN}`
+        }
+      }
+    );
+
+    res.status(200).json({
+      success: true,
+      data: response.data
+    });
+  } catch (error) {
+    console.error('Error al eliminar plantilla:', error.response?.data || error.message);
     res.status(500).json({
       success: false,
       error: error.response?.data || error.message
