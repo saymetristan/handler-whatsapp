@@ -378,6 +378,39 @@ app.get('/templates', async (req, res) => {
   }
 });
 
+// Endpoint para editar una plantilla
+app.post('/edit-template/:templateId', async (req, res) => {
+  try {
+    if (!BUSINESS_ACCOUNT_ID) {
+      return res.status(400).json({ success: false, error: 'BUSINESS_ACCOUNT_ID no configurado' });
+    }
+
+    const { templateId } = req.params;
+
+    const response = await axios.post(
+      `https://graph.facebook.com/v17.0/${templateId}`,
+      req.body,
+      {
+        headers: {
+          'Authorization': `Bearer ${WHATSAPP_TOKEN}`,
+          'Content-Type': 'application/json'
+        }
+      }
+    );
+
+    res.status(200).json({
+      success: true,
+      data: response.data
+    });
+  } catch (error) {
+    console.error('Error al editar plantilla:', error.response?.data || error.message);
+    res.status(500).json({
+      success: false,
+      error: error.response?.data || error.message
+    });
+  }
+});
+
 // Endpoint para eliminar una plantilla
 app.delete('/template/:templateId', async (req, res) => {
   try {
@@ -521,6 +554,31 @@ app.get('/test-n8n', async (req, res) => {
       success: false,
       error: error.message,
       testTimestamp: new Date().toISOString()
+    });
+  }
+});
+
+// Endpoint para obtener info del phone number ID
+app.get('/phone-info', async (req, res) => {
+  try {
+    const response = await axios.get(
+      `https://graph.facebook.com/v18.0/${PHONE_NUMBER_ID}`,
+      {
+        headers: {
+          'Authorization': `Bearer ${WHATSAPP_TOKEN}`
+        }
+      }
+    );
+    
+    res.status(200).json({
+      success: true,
+      data: response.data
+    });
+  } catch (error) {
+    console.error('Error al obtener info del phone number:', error.response?.data || error.message);
+    res.status(500).json({
+      success: false,
+      error: error.response?.data || error.message
     });
   }
 });
