@@ -217,7 +217,7 @@ app.post('/send-message', async (req, res) => {
 // Subida de media (estilo WABA)
 // Acepta: multipart/form-data con campo `file` (binario) o JSON { url: "https://..." }
 // Respuesta: { success, data: { id, mime_type, sha256, file_size } }
-app.post('/media', upload.single('file'), async (req, res) => {
+app.post('/media', upload.any(), async (req, res) => {
   try {
     if (!PHONE_NUMBER_ID) {
       return res.status(400).json({ success: false, error: 'PHONE_NUMBER_ID no configurado' });
@@ -229,49 +229,74 @@ app.post('/media', upload.single('file'), async (req, res) => {
     const graphBase = 'https://graph.facebook.com/v18.0';
 
     // Caso 1: subida por binario (multipart)
-    if (req.file) {
-      const detectedMime = req.file.mimetype || mime.lookup(req.file.originalname) || 'application/octet-stream';
+    const filePart = Array.isArray(req.files) && req.files.length > 0 ? req.files[0] : undefined;
+    if (filePart) {
+      const detectedMime = filePart.mimetype || mime.lookup(filePart.originalname) || 'application/octet-stream';
+
+      // Inferir tipo si no viene explícito
+      let { type } = req.body || {};
+      if (!type) {
+        if (detectedMime.startsWith('image/')) {
+          type = detectedMime === 'image/webp' ? 'image' : 'image';
+        } else if (detectedMime.startsWith('audio/')) {
+          type = 'audio';
+        } else if (detectedMime.startsWith('video/')) {
+          type = 'video';
+        } else {
+          type = 'document';
+        }
+      }
 
       const form = new FormData();
       form.append('messaging_product', 'whatsapp');
-      form.append('file', req.file.buffer, {
-        filename: req.file.originalname || 'upload',
+      form.append('type', type);
+      form.append('file', filePart.buffer, {
+        filename: filePart.originalname || 'upload',
         contentType: detectedMime
       });
 
-      const response = await axios.post(
-        `${graphBase}/${PHONE_NUMBER_ID}/media`,
-        form,
-        {
-          headers: {
-            ...form.getHeaders(),
-            Authorization: `Bearer ${WHATSAPP_TOKEN}`
-          },
-          maxBodyLength: Infinity
-        }
-      );
-
-      return res.status(200).json({ success: true, data: response.data });
+      try {
+        const response = await axios.post(
+          `${graphBase}/${PHONE_NUMBER_ID}/media`,
+          form,
+          {
+            headers: {
+              ...form.getHeaders(),
+              Authorization: `Bearer ${WHATSAPP_TOKEN}`
+            },
+            maxBodyLength: Infinity
+          }
+        );
+        return res.status(200).json({ success: true, data: response.data });
+      } catch (error) {
+        const graphErr = error.response?.data || { message: error.message };
+        return res.status(400).json({ success: false, error: graphErr });
+      }
     }
 
     // Caso 2: subida por URL (JSON body)
-    const { url, type } = req.body || {};
+    const { url, type: linkType } = req.body || {};
     if (url) {
-      const response = await axios.post(
-        `${graphBase}/${PHONE_NUMBER_ID}/media`,
-        {
-          messaging_product: 'whatsapp',
-          link: url,
-          type: type || undefined
-        },
-        {
-          headers: {
-            Authorization: `Bearer ${WHATSAPP_TOKEN}`,
-            'Content-Type': 'application/json'
+      try {
+        const response = await axios.post(
+          `${graphBase}/${PHONE_NUMBER_ID}/media`,
+          {
+            messaging_product: 'whatsapp',
+            link: url,
+            type: linkType || undefined
+          },
+          {
+            headers: {
+              Authorization: `Bearer ${WHATSAPP_TOKEN}`,
+              'Content-Type': 'application/json'
+            }
           }
-        }
-      );
-      return res.status(200).json({ success: true, data: response.data });
+        );
+        return res.status(200).json({ success: true, data: response.data });
+      } catch (error) {
+        const graphErr = error.response?.data || { message: error.message };
+        return res.status(400).json({ success: false, error: graphErr });
+      }
     }
 
     return res.status(400).json({ success: false, error: 'Debes enviar un archivo en campo `file` o un body con { url }' });
