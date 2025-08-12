@@ -189,6 +189,14 @@ app.post('/send-message', async (req, res) => {
       delete requestBody.recipient_phone_number; // Eliminamos el campo no estándar
     }
     
+    // Normalización de payload
+    if (requestBody && requestBody.type === 'audio' && requestBody.audio) {
+      if (typeof requestBody.audio.voice === 'string') {
+        const v = requestBody.audio.voice.toLowerCase();
+        requestBody.audio.voice = v === 'true' || v === '1' || v === 'yes';
+      }
+    }
+
     // Enviar mensaje a la API de WhatsApp, pasando el body tal como viene
     const response = await axios.post(
       `https://graph.facebook.com/v17.0/${PHONE_NUMBER_ID}/messages`,
