@@ -2,6 +2,10 @@ const express = require('express');
 const bodyParser = require('body-parser');
 const axios = require('axios');
 const app = express();
+const multer = require('multer');
+const FormData = require('form-data');
+const mime = require('mime-types');
+const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 25 * 1024 * 1024 } });
 const PORT = process.env.PORT || 3000;
 
 // Middleware para procesar JSON
@@ -207,6 +211,126 @@ app.post('/send-message', async (req, res) => {
       success: false,
       error: error.response?.data || error.message
     });
+  }
+});
+
+// Subida de media (estilo WABA)
+// Acepta: multipart/form-data con campo `file` (binario) o JSON { url: "https://..." }
+// Respuesta: { success, data: { id, mime_type, sha256, file_size } }
+app.post('/media', upload.single('file'), async (req, res) => {
+  try {
+    if (!PHONE_NUMBER_ID) {
+      return res.status(400).json({ success: false, error: 'PHONE_NUMBER_ID no configurado' });
+    }
+    if (!WHATSAPP_TOKEN) {
+      return res.status(400).json({ success: false, error: 'WHATSAPP_TOKEN no configurado' });
+    }
+
+    const graphBase = 'https://graph.facebook.com/v18.0';
+
+    // Caso 1: subida por binario (multipart)
+    if (req.file) {
+      const detectedMime = req.file.mimetype || mime.lookup(req.file.originalname) || 'application/octet-stream';
+
+      const form = new FormData();
+      form.append('messaging_product', 'whatsapp');
+      form.append('file', req.file.buffer, {
+        filename: req.file.originalname || 'upload',
+        contentType: detectedMime
+      });
+
+      const response = await axios.post(
+        `${graphBase}/${PHONE_NUMBER_ID}/media`,
+        form,
+        {
+          headers: {
+            ...form.getHeaders(),
+            Authorization: `Bearer ${WHATSAPP_TOKEN}`
+          },
+          maxBodyLength: Infinity
+        }
+      );
+
+      return res.status(200).json({ success: true, data: response.data });
+    }
+
+    // Caso 2: subida por URL (JSON body)
+    const { url, type } = req.body || {};
+    if (url) {
+      const response = await axios.post(
+        `${graphBase}/${PHONE_NUMBER_ID}/media`,
+        {
+          messaging_product: 'whatsapp',
+          link: url,
+          type: type || undefined
+        },
+        {
+          headers: {
+            Authorization: `Bearer ${WHATSAPP_TOKEN}`,
+            'Content-Type': 'application/json'
+          }
+        }
+      );
+      return res.status(200).json({ success: true, data: response.data });
+    }
+
+    return res.status(400).json({ success: false, error: 'Debes enviar un archivo en campo `file` o un body con { url }' });
+  } catch (error) {
+    console.error('Error al subir media:', error.response?.data || error.message);
+    res.status(500).json({ success: false, error: error.response?.data || error.message });
+  }
+});
+
+// Obtener metadata / URL de media (estandarizado)
+app.get(['/media/:mediaId/metadata', '/media/:mediaId/url'], async (req, res) => {
+  try {
+    const { mediaId } = req.params;
+    if (!mediaId) {
+      return res.status(400).json({ success: false, error: 'mediaId es requerido' });
+    }
+    if (!WHATSAPP_TOKEN) {
+      return res.status(400).json({ success: false, error: 'WHATSAPP_TOKEN no configurado' });
+    }
+
+    const response = await axios.get(`https://graph.facebook.com/v18.0/${mediaId}`, {
+      headers: { Authorization: `Bearer ${WHATSAPP_TOKEN}` }
+    });
+
+    return res.status(200).json({
+      success: true,
+      data: {
+        id: mediaId,
+        url: response.data.url,
+        mime_type: response.data.mime_type,
+        file_size: response.data.file_size,
+        sha256: response.data.sha256
+      }
+    });
+  } catch (error) {
+    console.error('Error al obtener metadata de media:', error.response?.data || error.message);
+    return res.status(500).json({ success: false, error: error.response?.data || error.message });
+  }
+});
+
+// Borrar media del bucket de Meta
+app.delete('/media/:mediaId', async (req, res) => {
+  try {
+    const { mediaId } = req.params;
+    if (!mediaId) {
+      return res.status(400).json({ success: false, error: 'mediaId es requerido' });
+    }
+    if (!WHATSAPP_TOKEN) {
+      return res.status(400).json({ success: false, error: 'WHATSAPP_TOKEN no configurado' });
+    }
+
+    const response = await axios.delete(`https://graph.facebook.com/v18.0/${mediaId}`, {
+      headers: { Authorization: `Bearer ${WHATSAPP_TOKEN}` }
+    });
+
+    return res.status(200).json({ success: true, data: response.data || { id: mediaId, deleted: true } });
+  } catch (error) {
+    console.error('Error al eliminar media:', error.response?.data || error.message);
+    return res.status(500).json({ success: false, error: error.response?.data || error.message });
   }
 });
 
