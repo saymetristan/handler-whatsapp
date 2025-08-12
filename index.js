@@ -189,14 +189,35 @@ app.post('/send-message', async (req, res) => {
       delete requestBody.recipient_phone_number; // Eliminamos el campo no estándar
     }
     
-    // Normalización de payload
-    if (requestBody && requestBody.type === 'audio' && requestBody.audio) {
-      if (typeof requestBody.audio.voice === 'string') {
-        const v = requestBody.audio.voice.toLowerCase();
-        requestBody.audio.voice = v === 'true' || v === '1' || v === 'yes';
+    // Normalización y validación para audio/voice
+    if (requestBody.type === 'audio' && requestBody.audio) {
+      const audioPayload = requestBody.audio;
+      if (typeof audioPayload.voice === 'string') {
+        const v = audioPayload.voice.trim().toLowerCase();
+        audioPayload.voice = v === 'true' || v === '1' || v === 'yes';
       }
+      if (audioPayload.voice === true && audioPayload.id && WHATSAPP_TOKEN) {
+        try {
+          // Verificar que el media es OGG/Opus para voice notes
+          const meta = await axios.get(
+            `https://graph.facebook.com/v18.0/${audioPayload.id}`,
+            { headers: { Authorization: `Bearer ${WHATSAPP_TOKEN}` } }
+          );
+          const mimeType = meta.data?.mime_type || '';
+          const isOgg = typeof mimeType === 'string' && mimeType.toLowerCase().includes('ogg');
+          if (!isOgg) {
+            console.warn(`audio.voice=true pero MIME no OGG (${mimeType}). Forzando voice=false para evitar no reproducible.`);
+            audioPayload.voice = false;
+          }
+        } catch (e) {
+          console.warn('No se pudo verificar MIME del audio para voice; se envía sin voice:', e.response?.data || e.message);
+          // Para evitar mensajes no reproducibles, degradamos a audio normal si no hay confirmación
+          audioPayload.voice = false;
+        }
+      }
+      requestBody.audio = audioPayload;
     }
-
+    
     // Enviar mensaje a la API de WhatsApp, pasando el body tal como viene
     const response = await axios.post(
       `https://graph.facebook.com/v17.0/${PHONE_NUMBER_ID}/messages`,
