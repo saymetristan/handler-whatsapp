@@ -107,10 +107,8 @@ app.post('/webhook', async (req, res) => {
         
         if (!shouldSendStatus) {
           console.log(`⏭️ Status '${status.status}' omitido (solo enviamos: ${statusesToSend.join(', ')})`);
-          // Responder a Meta para confirmar recepción pero sin procesar
-          res.status(200).send('EVENT_RECEIVED');
-          return;
-        }
+          // Continuar sin procesar este status pero sin hacer return
+        } else {
         
         // Preparar los datos del status para enviar a n8n
         const statusData = {
@@ -171,6 +169,7 @@ app.post('/webhook', async (req, res) => {
             PHONE_NUMBER_ID: PHONE_NUMBER_ID ? 'CONFIGURADA' : 'NO CONFIGURADA'
           });
         }
+        } // Cerrar el else del filtro de status
       }
       
       // Responder a Meta para confirmar recepción
