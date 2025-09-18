@@ -99,11 +99,24 @@ app.post('/webhook', async (req, res) => {
       if (changeData.statuses && changeData.statuses.length > 0) {
         const status = changeData.statuses[0];
         
+        console.log(`📊 Status recibido: ${status.id} - ${status.status} para ${status.recipient_id}`);
+        
+        // FILTRO: Solo enviar 'delivered' y 'failed' a n8n
+        const statusesToSend = ['delivered', 'failed'];
+        const shouldSendStatus = statusesToSend.includes(status.status);
+        
+        if (!shouldSendStatus) {
+          console.log(`⏭️ Status '${status.status}' omitido (solo enviamos: ${statusesToSend.join(', ')})`);
+          // Responder a Meta para confirmar recepción pero sin procesar
+          res.status(200).send('EVENT_RECEIVED');
+          return;
+        }
+        
         // Preparar los datos del status para enviar a n8n
         const statusData = {
           messageId: status.id,
           recipientId: status.recipient_id,
-          status: status.status, // sent, delivered, read, failed
+          status: status.status, // delivered, failed
           timestamp: status.timestamp,
           conversation: status.conversation || null,
           pricing: status.pricing || null,
@@ -111,7 +124,6 @@ app.post('/webhook', async (req, res) => {
           raw: changeData
         };
         
-        console.log(`📊 Status recibido: ${status.id} - ${status.status} para ${status.recipient_id}`);
         console.log(`🔗 N8N_WEBHOOK_STATUS_URL configurada: ${N8N_WEBHOOK_STATUS_URL ? 'SÍ' : 'NO'}`);
         
         // Enviar status a n8n (solo si tenemos la URL configurada)
@@ -187,35 +199,6 @@ app.post('/send-message', async (req, res) => {
     if (!requestBody.to && requestBody.recipient_phone_number) {
       requestBody.to = requestBody.recipient_phone_number;
       delete requestBody.recipient_phone_number; // Eliminamos el campo no estándar
-    }
-    
-    // Normalización y validación para audio/voice
-    if (requestBody.type === 'audio' && requestBody.audio) {
-      const audioPayload = requestBody.audio;
-      if (typeof audioPayload.voice === 'string') {
-        const v = audioPayload.voice.trim().toLowerCase();
-        audioPayload.voice = v === 'true' || v === '1' || v === 'yes';
-      }
-      if (audioPayload.voice === true && audioPayload.id && WHATSAPP_TOKEN) {
-        try {
-          // Verificar que el media es OGG/Opus para voice notes
-          const meta = await axios.get(
-            `https://graph.facebook.com/v18.0/${audioPayload.id}`,
-            { headers: { Authorization: `Bearer ${WHATSAPP_TOKEN}` } }
-          );
-          const mimeType = meta.data?.mime_type || '';
-          const isOgg = typeof mimeType === 'string' && mimeType.toLowerCase().includes('ogg');
-          if (!isOgg) {
-            console.warn(`audio.voice=true pero MIME no OGG (${mimeType}). Forzando voice=false para evitar no reproducible.`);
-            audioPayload.voice = false;
-          }
-        } catch (e) {
-          console.warn('No se pudo verificar MIME del audio para voice; se envía sin voice:', e.response?.data || e.message);
-          // Para evitar mensajes no reproducibles, degradamos a audio normal si no hay confirmación
-          audioPayload.voice = false;
-        }
-      }
-      requestBody.audio = audioPayload;
     }
     
     // Enviar mensaje a la API de WhatsApp, pasando el body tal como viene
