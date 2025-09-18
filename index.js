@@ -45,6 +45,12 @@ app.get('/webhook', (req, res) => {
 // Endpoint para recibir mensajes de WhatsApp (POST)
 app.post('/webhook', async (req, res) => {
   try {
+    // DEBUGGING: Log cada request recibido
+    const timestamp = new Date().toISOString();
+    const userAgent = req.headers['user-agent'] || 'unknown';
+    const ip = req.ip || req.connection.remoteAddress || 'unknown';
+    console.log(`🕐 ${timestamp} - Request recibido desde IP: ${ip}, User-Agent: ${userAgent}`);
+    
     const body = req.body;
 
     // Verificar que es un evento de WhatsApp
